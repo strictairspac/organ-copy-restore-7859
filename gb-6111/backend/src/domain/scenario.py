@@ -12,6 +12,7 @@ CONFIG = {
     "direction": "逻辑备份与选择性恢复",
     "mechanism": "PostgreSQL 原生 COPY、外键依赖闭包和逐段 SHA-256 字节核验。",
     "modules": ["维修库卷宗", "复原范围", "归档演练", "复原证明"],
+    "library_module": "维修库归卷",
     "unit": "维护卷",
     "max_parameter": 100,
     "default_parameter": 20,

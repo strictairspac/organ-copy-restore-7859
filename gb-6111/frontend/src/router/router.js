@@ -1,4 +1,4 @@
-const routes = ["overview", "cases", "runs", "evidence"];
+export const routes = ["overview", "cases", "runs", "evidence", "library"];
 
 export function activeRoute() {
   const [name, id] = (location.hash.slice(1) || "overview").split("/");
@@ -9,4 +9,6 @@ export function navigate(route) {
   location.hash = route;
 }
 
-export { routes };
+export function routeLabel(config, index) {
+  return index < config.modules.length ? config.modules[index] : config.library_module;
+}

@@ -99,3 +99,20 @@ def select_sql(source, relation):
         f"SELECT {', '.join(relation.columns)} FROM {source[relation.key]} "
         f"{condition} ORDER BY {relation.columns[0]} COLLATE \"C\""
     )
+
+
+def selected_records(payload, requested):
+    """选中工单的外键闭包：父琴体与子测记，按主键 C 排序。
+
+    与 COPYSELECT 的口径一致，供维修库入库复用，避免另起一套选取规则。
+    """
+    wanted = set(requested)
+    visits = [dict(item) for item in payload["visits"] if item["visit_id"] in wanted]
+    organ_ids = {visit["organ_id"] for visit in visits}
+    organs = [dict(item) for item in payload["organs"] if item["organ_id"] in organ_ids]
+    readings = [dict(item) for item in payload["readings"] if item["visit_id"] in wanted]
+    return {
+        "organs": sorted(organs, key=lambda item: item["organ_id"]),
+        "visits": sorted(visits, key=lambda item: item["visit_id"]),
+        "readings": sorted(readings, key=lambda item: item["reading_id"]),
+    }

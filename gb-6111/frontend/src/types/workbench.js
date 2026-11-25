@@ -12,3 +12,7 @@ export function validateConfig(config) {
   }
   return config;
 }
+
+/** @typedef {{id:number, code:string, title:string, digest:string, source_case_id:number|null,
+ *   source_run_id:number|null, admitted_by:string, admitted_at:number,
+ *   counts:{organs:number, visits:number, readings:number}}} LibraryVolume */

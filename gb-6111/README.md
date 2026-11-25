@@ -8,6 +8,7 @@
 2. 复原范围
 3. 归档演练
 4. 复原证明
+5. 维修库归卷
 
 PostgreSQL 原生 COPY、外键依赖闭包和逐段 SHA-256 字节核验。
 
@@ -18,6 +19,16 @@ PostgreSQL 原生 COPY、外键依赖闭包和逐段 SHA-256 字节核验。
 先按请求顺序取上限内的工单，把父琴体与其所有子测记一并选中。PostgreSQL COPY 以主键 C 排序流出 UTF-8 CSV，每段计算 SHA-256。全部段校验通过后才按外键顺序还原。校验报告重新导出目标表并对照原始段摘要。
 
 范围为应用演练中的逻辑数据卷。以数据库隔离临时表核验，数据库事务结束后自动清除，不提供整库 DDL、角色、物理 WAL 或生产恢复编排。
+
+## 维修库归卷
+
+通过核验和复原的维护卷可以归入共享维修库（「维修库归卷」页或 `POST /library`）。入库来源是已完成批次的选中闭包（`run_id`），也可以直接给出三段的记录 JSON。
+
+- **同号共用**：琴体 `organ_id`、工单 `visit_id`、测记 `reading_id` 是维修库主键。同号且各字段内容完全一致时只保留一份记录，由多个维护卷共同引用。
+- **冲突整卷拒绝**：任一同号记录内容不同，整卷不入库（不写卷行、不写任何记录），响应 `status=rejected` 并按 `relation / record_id / existing / incoming` 列出冲突记录。同一卷号再次提交相同内容为幂等（`status=unchanged`）；同号不同内容同样拒绝。
+- **撤回只清独有记录**：`POST /library/{id}/withdraw` 删除该卷的归属关系，只清走不再被其他在库卷直接或间接引用的记录。仍被引用的琴体、工单和测记保留，撤回响应给出 `removed` 与 `retained` 计数。
+- **并发**：入库与撤回在各自事务内按记录主键排序获取 PostgreSQL 事务级咨询锁。重叠的卷排队串行，互不重叠的卷可同时办理。
+- **读取语义**：`GET /library` 与 `GET /library/{id}` 用单条 SQL 语句的 JSON 聚合读取，依靠语句级 MVCC 快照，始终读到整卷生效后的完整状态，不会看到半卷记录。
 
 ## 启动
 
@@ -37,9 +48,9 @@ docker compose up -d --build --wait
 
 | 登录名 | 角色 | 可执行操作 |
 |---|---|---|
-| operator | 资料操作员 | 登记业务资料、设置「本次最多复原工单数」、提交、查看和下载结果 |
+| operator | 资料操作员 | 登记业务资料、设置「本次最多复原工单数」、提交、查看和下载结果、归卷入库与撤回维护卷 |
 | reviewer | 业务复核员 | 查看执行证据、签署单次复核、下载交接单 |
-| viewer | 只读观察员 | 查看资料、执行结果及审计，下载证据 |
+| viewer | 只读观察员 | 查看资料、执行结果、在库维护卷及审计，下载证据 |
 
 选用「organ-ledger-2026-11.copy」对应的演示资料，保存一份复演资料，再以默认参数 20 提交。worker 保存结果摘要、业务明细和 SHA-256。复核员登录后在「复原证明」签署。
 
@@ -52,11 +63,13 @@ docker compose up -d --build --wait
 | 数据库 | PostgreSQL 16 |
 | 后台执行 | Redis 通知、数据库持久任务队列和行锁、Python worker |
 
-从 `backend/src/domain/scenario.py` 修改业务入口和演示口径，运行 `docker compose up -d --build --wait` 查看变更。数据库表结构在 `backend/src/models` 和 `backend/migrations`，输入模型在 `backend/src/schemas`。业务页和请求接口在 `frontend/src/pages`、`frontend/src/api`。资料、执行、复核三个工作流实体各有独立表和 API；场景输入及结果保留在所属资料和批次中。
+从 `backend/src/domain/scenario.py` 修改业务入口和演示口径，运行 `docker compose up -d --build --wait` 查看变更。数据库表结构在 `backend/src/models` 和 `backend/migrations`，输入模型在 `backend/src/schemas`。业务页和请求接口在 `frontend/src/pages`、`frontend/src/api`。资料、执行、复核三个工作流实体各有独立表和 API；场景输入及结果保留在所属资料和批次中。维修库归卷在 `backend/src/domain/library.py`、`backend/src/models/library.py`、`backend/src/services/library.py`、`backend/src/routes/library.py` 和 `frontend/src/pages/library.js`。
 
 角色枚举在 `backend/src/constants/roles.py`、`frontend/src/constants/roles.js`，用于服务端访问控制、账号初始化、前端导航与签署。批次状态在 `backend/src/constants/job_state.py`、`frontend/src/constants/states.js`，用于队列、状态 API、状态标记与轮询。登记、提交、完成和签署事件写入审计表。
 
 `COMPOSE_PROJECT_NAME` 设置栈名，`FRONTEND_PORT`、`BACKEND_PORT`、`DB_PORT` 设置端口。通过 `DB_PASSWORD`、`JWT_SECRET`、`DEMO_PASSWORD` 配置本地凭据。设置 `SEED_DEMO=false` 可关闭演示数据载入，此时数据库初始没有演示账号。数据库密码调整后，已有数据卷需在数据库内同步修改用户密码。
+
+维修库归卷验收测试在 `backend/tests`，覆盖同号共用、冲突整卷拒绝、撤回保留共用记录、重叠/不重叠并发和读取快照语义。安装 `requirements-dev.txt` 后，在可访问 PostgreSQL 的环境运行 `pytest`；DATABASE_URL 指向的库会重建 public schema，请勿指向生产库。
 
 ## 验收范围
 
